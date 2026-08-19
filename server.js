@@ -13,8 +13,69 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const cache = new NodeCache({ stdTTL: 300 });
 
+const axios = require("axios");
+
 app.use(cors());
 app.use(express.json());
+
+// ─── OAuth Callback: Mercado Livre ──────────────────────────
+// Quando o ML redireciona de volta com ?code=TG-..., esta rota
+// troca o código por access_token automaticamente.
+app.get("/auth/mercadolivre/callback", async (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.status(400).send("Código de autorização não encontrado.");
+
+  try {
+    const { data } = await axios.post("https://api.mercadolibre.com/oauth/token", {
+      grant_type: "authorization_code",
+      client_id: process.env.ML_CLIENT_ID,
+      client_secret: process.env.ML_CLIENT_SECRET,
+      code,
+      redirect_uri: process.env.ML_REDIRECT_URI,
+    });
+
+    // Atualiza os tokens em memória
+    if (integrations.mercadolivre) {
+      integrations.mercadolivre.accessToken = data.access_token;
+      integrations.mercadolivre.refreshToken = data.refresh_token;
+    }
+
+    res.send(`
+      <html><body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;background:#f0fdf4">
+        <div style="text-align:center;background:white;padding:40px;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,0.1)">
+          <h1 style="color:#16a34a">✅ Mercado Livre Conectado!</h1>
+          <p style="color:#64748b">Access Token obtido com sucesso.</p>
+          <p style="color:#64748b;font-size:14px">Seller ID: <strong>${data.user_id}</strong></p>
+          <p style="background:#f1f5f9;padding:12px;border-radius:8px;font-size:12px;word-break:break-all;max-width:500px">
+            <strong>Access Token:</strong><br/>${data.access_token?.substring(0, 40)}...<br/><br/>
+            <strong>Refresh Token:</strong><br/>${data.refresh_token?.substring(0, 40)}...
+          </p>
+          <p style="color:#ef4444;font-size:13px;margin-top:16px">⚠️ IMPORTANTE: Copie os tokens acima e adicione no Railway como variáveis:<br/>
+          <strong>ML_ACCESS_TOKEN</strong> e <strong>ML_REFRESH_TOKEN</strong> e <strong>ML_SELLER_ID</strong> = ${data.user_id}</p>
+          <a href="/" style="display:inline-block;margin-top:16px;background:#3b82f6;color:white;padding:10px 24px;border-radius:8px;text-decoration:none">Ir para o Painel →</a>
+        </div>
+      </body></html>
+    `);
+  } catch (err) {
+    console.error("[ML OAuth] Erro:", err.response?.data || err.message);
+    res.status(500).send(`
+      <html><body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;background:#fef2f2">
+        <div style="text-align:center;background:white;padding:40px;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,0.1)">
+          <h1 style="color:#dc2626">❌ Erro na Autorização</h1>
+          <p style="color:#64748b">${err.response?.data?.message || err.message}</p>
+          <p style="color:#64748b;font-size:14px">O código pode ter expirado. Tente autorizar novamente.</p>
+          <a href="/auth/mercadolivre" style="display:inline-block;margin-top:16px;background:#3b82f6;color:white;padding:10px 24px;border-radius:8px;text-decoration:none">Tentar Novamente →</a>
+        </div>
+      </body></html>
+    `);
+  }
+});
+
+// ─── Iniciar OAuth do Mercado Livre ─────────────────────────
+app.get("/auth/mercadolivre", (req, res) => {
+  const authUrl = `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=${process.env.ML_CLIENT_ID}&redirect_uri=${encodeURIComponent(process.env.ML_REDIRECT_URI)}`;
+  res.redirect(authUrl);
+});
 
 // Servir o painel (frontend) na raiz
 app.use(express.static(path.join(__dirname, "public")));
