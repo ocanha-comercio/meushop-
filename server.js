@@ -96,12 +96,25 @@ app.use(express.static(path.join(__dirname, "public")));
 // ─── Carregar Integrações ───────────────────────────────────
 const integrations = {};
 
+// Só carrega se as credenciais principais existirem
+const credCheck = {
+  mercadolivre: () => process.env.ML_ACCESS_TOKEN && process.env.ML_SELLER_ID,
+  shopee: () => process.env.SHOPEE_PARTNER_ID && process.env.SHOPEE_ACCESS_TOKEN,
+  amazon: () => process.env.AMAZON_CLIENT_ID && process.env.AMAZON_REFRESH_TOKEN,
+  tiktok: () => process.env.TIKTOK_APP_KEY && process.env.TIKTOK_ACCESS_TOKEN,
+  magalu: () => process.env.MAGALU_CLIENT_ID && process.env.MAGALU_ACCESS_TOKEN,
+};
+
 const tryLoad = (name, file) => {
   try {
+    if (credCheck[name] && !credCheck[name]()) {
+      console.warn(`  ⏭️  ${name} — sem credenciais, pulando`);
+      return;
+    }
     integrations[name] = require(`./integrations/${file}`);
     console.log(`  ✅ ${name}`);
   } catch (err) {
-    console.warn(`  ⚠️  ${name} — não configurado`);
+    console.warn(`  ⚠️  ${name} — erro ao carregar`);
   }
 };
 
@@ -123,11 +136,13 @@ const withCache = async (key, fn) => {
   return r;
 };
 
+// Timeout de 15 segundos por marketplace
 const safeCall = async (mkt, method, params) => {
   const integ = integrations[mkt];
   if (!integ?.[method]) return { error: `${mkt} indisponível` };
   try {
-    return await integ[method](params);
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 15000));
+    return await Promise.race([integ[method](params), timeout]);
   } catch (err) {
     return { error: err.message, marketplace: mkt };
   }
