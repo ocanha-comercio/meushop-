@@ -1,0 +1,199 @@
+// ============================================================
+//  MEUSHOP — Servidor Unificado (API + Painel)
+//  Tudo roda em uma URL só
+// ============================================================
+
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const path = require("path");
+const NodeCache = require("node-cache");
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+const cache = new NodeCache({ stdTTL: 300 });
+
+app.use(cors());
+app.use(express.json());
+
+// Servir o painel (frontend) na raiz
+app.use(express.static(path.join(__dirname, "public")));
+
+// ─── Carregar Integrações ───────────────────────────────────
+const integrations = {};
+
+const tryLoad = (name, file) => {
+  try {
+    integrations[name] = require(`./integrations/${file}`);
+    console.log(`  ✅ ${name}`);
+  } catch (err) {
+    console.warn(`  ⚠️  ${name} — não configurado`);
+  }
+};
+
+console.log("\n  Carregando integrações...");
+tryLoad("mercadolivre", "mercadolivre");
+tryLoad("shopee", "shopee");
+tryLoad("amazon", "amazon");
+tryLoad("tiktok", "tiktok");
+tryLoad("magalu", "magalu");
+
+// ─── Helpers ────────────────────────────────────────────────
+const getActive = () => Object.keys(integrations);
+
+const withCache = async (key, fn) => {
+  const c = cache.get(key);
+  if (c) return c;
+  const r = await fn();
+  cache.set(key, r);
+  return r;
+};
+
+const safeCall = async (mkt, method, params) => {
+  const integ = integrations[mkt];
+  if (!integ?.[method]) return { error: `${mkt} indisponível` };
+  try {
+    return await integ[method](params);
+  } catch (err) {
+    return { error: err.message, marketplace: mkt };
+  }
+};
+
+// ============================================================
+//  ROTAS DA API
+// ============================================================
+
+app.get("/api/status", (req, res) => {
+  res.json({
+    status: "online",
+    marketplaces: getActive(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get("/api/dashboard", async (req, res) => {
+  try {
+    const result = await withCache("dashboard", async () => {
+      const mkts = getActive();
+      const now = new Date();
+      const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const financials = await Promise.all(
+        mkts.map((m) => safeCall(m, "getFinancials", { dateFrom: firstOfMonth, dateTo: now.toISOString() }))
+      );
+      const valid = financials.filter((f) => !f.error);
+      return {
+        kpis: {
+          receitaTotal: valid.reduce((s, f) => s + (f.receita || 0), 0),
+          totalPedidos: valid.reduce((s, f) => s + (f.totalPedidos || 0), 0),
+          taxasTotal: valid.reduce((s, f) => s + (f.taxas || 0), 0),
+          lucroEstimado: valid.reduce((s, f) => s + (f.lucroEstimado || 0), 0),
+          ticketMedio: valid.reduce((s, f) => s + (f.ticketMedio || 0), 0) / (valid.length || 1),
+        },
+        porMarketplace: financials.map((f, i) => ({ marketplace: mkts[i], ...(f.error ? { error: f.error } : f) })),
+      };
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/orders", async (req, res) => {
+  try {
+    const { marketplace, dateFrom, dateTo, limit } = req.query;
+    const targets = marketplace ? [marketplace] : getActive();
+    const results = await Promise.all(
+      targets.map((m) => safeCall(m, "getOrders", { dateFrom, dateTo, limit: parseInt(limit) || 50 }))
+    );
+    const allOrders = results.filter((r) => !r.error).flatMap((r) => r.pedidos || []).sort((a, b) => new Date(b.data) - new Date(a.data));
+    const totalByMkt = {};
+    results.forEach((r, i) => { totalByMkt[targets[i]] = r.error ? { error: r.error } : { total: r.total }; });
+    res.json({ total: allOrders.length, totalByMarketplace: totalByMkt, pedidos: allOrders });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/products", async (req, res) => {
+  try {
+    const { marketplace, limit } = req.query;
+    const targets = marketplace ? [marketplace] : getActive();
+    const results = await Promise.all(targets.map((m) => safeCall(m, "getProducts", { limit: parseInt(limit) || 50 })));
+    const allProducts = results.filter((r) => !r.error).flatMap((r) => r.produtos || []);
+    res.json({ total: allProducts.length, produtos: allProducts });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/financials", async (req, res) => {
+  try {
+    const { dateFrom, dateTo } = req.query;
+    const mkts = getActive();
+    const results = await Promise.all(mkts.map((m) => safeCall(m, "getFinancials", { dateFrom, dateTo })));
+    const valid = results.filter((r) => !r.error);
+    res.json({
+      consolidado: {
+        receita: valid.reduce((s, r) => s + (r.receita || 0), 0),
+        taxas: valid.reduce((s, r) => s + (r.taxas || 0), 0),
+        lucroEstimado: valid.reduce((s, r) => s + (r.lucroEstimado || 0), 0),
+        totalPedidos: valid.reduce((s, r) => s + (r.totalPedidos || 0), 0),
+      },
+      porMarketplace: results.map((r, i) => ({ marketplace: mkts[i], ...(r.error ? { error: r.error } : r) })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/customers", async (req, res) => {
+  try {
+    const result = await withCache("customers", async () => {
+      const mkts = getActive();
+      const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString();
+      const results = await Promise.all(mkts.map((m) => safeCall(m, "getOrders", { dateFrom: ninetyDaysAgo, limit: 100 })));
+      const clientMap = {};
+      for (const r of results.filter((r) => !r.error)) {
+        for (const p of r.pedidos || []) {
+          const key = p.cliente.email || p.cliente.nome;
+          if (!clientMap[key]) clientMap[key] = { ...p.cliente, totalGasto: 0, pedidos: 0, marketplaces: new Set(), ultimaCompra: p.data };
+          clientMap[key].totalGasto += p.valorTotal;
+          clientMap[key].pedidos += 1;
+          clientMap[key].marketplaces.add(p.marketplace);
+          if (new Date(p.data) > new Date(clientMap[key].ultimaCompra)) clientMap[key].ultimaCompra = p.data;
+        }
+      }
+      return {
+        total: Object.keys(clientMap).length,
+        clientes: Object.values(clientMap).map((c) => ({
+          ...c, marketplaces: [...c.marketplaces],
+          ticketMedio: c.pedidos > 0 ? c.totalGasto / c.pedidos : 0,
+          status: c.totalGasto > 5000 ? "VIP" : c.pedidos > 3 ? "Ativo" : c.pedidos === 1 ? "Novo" : "Regular",
+        })).sort((a, b) => b.totalGasto - a.totalGasto),
+      };
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/cache/clear", (req, res) => {
+  cache.flushAll();
+  res.json({ message: "Cache limpo" });
+});
+
+// Qualquer rota não-API serve o painel
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+// ─── Iniciar ────────────────────────────────────────────────
+app.listen(PORT, () => {
+  console.log(`
+╔═══════════════════════════════════════════╗
+║       MEUSHOP v1.0 — Online!              ║
+║  Acesse: http://localhost:${PORT}            ║
+╚═══════════════════════════════════════════╝
+  `);
+});
