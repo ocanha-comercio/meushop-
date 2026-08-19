@@ -41,18 +41,31 @@ app.get("/auth/mercadolivre/callback", async (req, res) => {
     }
 
     res.send(`
-      <html><body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;background:#f0fdf4">
-        <div style="text-align:center;background:white;padding:40px;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,0.1)">
-          <h1 style="color:#16a34a">✅ Mercado Livre Conectado!</h1>
-          <p style="color:#64748b">Access Token obtido com sucesso.</p>
-          <p style="color:#64748b;font-size:14px">Seller ID: <strong>${data.user_id}</strong></p>
-          <p style="background:#f1f5f9;padding:12px;border-radius:8px;font-size:12px;word-break:break-all;max-width:500px">
-            <strong>Access Token:</strong><br/>${data.access_token?.substring(0, 40)}...<br/><br/>
-            <strong>Refresh Token:</strong><br/>${data.refresh_token?.substring(0, 40)}...
-          </p>
-          <p style="color:#ef4444;font-size:13px;margin-top:16px">⚠️ IMPORTANTE: Copie os tokens acima e adicione no Railway como variáveis:<br/>
-          <strong>ML_ACCESS_TOKEN</strong> e <strong>ML_REFRESH_TOKEN</strong> e <strong>ML_SELLER_ID</strong> = ${data.user_id}</p>
-          <a href="/" style="display:inline-block;margin-top:16px;background:#3b82f6;color:white;padding:10px 24px;border-radius:8px;text-decoration:none">Ir para o Painel →</a>
+      <html><body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f0fdf4;padding:20px">
+        <div style="background:white;padding:40px;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,0.1);max-width:700px;width:100%">
+          <h1 style="color:#16a34a;text-align:center">✅ Mercado Livre Conectado!</h1>
+          <p style="color:#64748b;text-align:center">Copie cada valor abaixo e adicione como variável no Railway.</p>
+
+          <div style="margin:20px 0">
+            <label style="font-weight:bold;font-size:14px;color:#1e293b">ML_ACCESS_TOKEN</label>
+            <textarea id="at" readonly style="width:100%;height:80px;margin-top:4px;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:11px;word-break:break-all;resize:none">${data.access_token}</textarea>
+            <button onclick="navigator.clipboard.writeText(document.getElementById('at').value);this.textContent='✅ Copiado!'" style="margin-top:4px;background:#3b82f6;color:white;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:13px">📋 Copiar Access Token</button>
+          </div>
+
+          <div style="margin:20px 0">
+            <label style="font-weight:bold;font-size:14px;color:#1e293b">ML_REFRESH_TOKEN</label>
+            <textarea id="rt" readonly style="width:100%;height:80px;margin-top:4px;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:11px;word-break:break-all;resize:none">${data.refresh_token}</textarea>
+            <button onclick="navigator.clipboard.writeText(document.getElementById('rt').value);this.textContent='✅ Copiado!'" style="margin-top:4px;background:#3b82f6;color:white;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:13px">📋 Copiar Refresh Token</button>
+          </div>
+
+          <div style="margin:20px 0">
+            <label style="font-weight:bold;font-size:14px;color:#1e293b">ML_SELLER_ID</label>
+            <input id="si" readonly value="${data.user_id}" style="width:100%;margin-top:4px;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px" />
+            <button onclick="navigator.clipboard.writeText(document.getElementById('si').value);this.textContent='✅ Copiado!'" style="margin-top:4px;background:#3b82f6;color:white;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:13px">📋 Copiar Seller ID</button>
+          </div>
+
+          <p style="color:#ef4444;font-size:13px;text-align:center;margin-top:20px">⚠️ Copie os 3 valores e cole nas Variables do Railway. Depois o sistema reinicia e puxa seus dados reais.</p>
+          <div style="text-align:center"><a href="/" style="display:inline-block;margin-top:12px;background:#3b82f6;color:white;padding:10px 24px;border-radius:8px;text-decoration:none">Ir para o Painel →</a></div>
         </div>
       </body></html>
     `);
