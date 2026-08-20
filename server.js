@@ -358,6 +358,7 @@ app.post("/api/cache/clear", (req, res) => {
 });
 
 // ─── Iniciar ────────────────────────────────────────────────
+app.get("/teste", function(req, res) { res.send("<h1>Deploy OK!</h1><p>Se voce ve isso, o deploy funciona.</p>"); });
 app.listen(PORT, () => {
   console.log(`
 ╔═══════════════════════════════════════════╗
