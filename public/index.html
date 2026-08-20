@@ -1,565 +1,145 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MeuShop — Painel Multi-Marketplace</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MeuShop — Painel</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://unpkg.com/recharts@2.8.0/umd/Recharts.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>🛒</text></svg>">
   <style>
-    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
-    .loader { display: flex; align-items: center; justify-content: center; height: 100vh; }
-    .spin { animation: spin 1s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#f8fafc}
+    .page{display:none}.page.active{display:block}
+    .nav-btn{transition:all .15s}.nav-btn.active{background:#eff6ff;color:#2563eb}
+    .card{background:#fff;border-radius:12px;border:1px solid #f1f5f9;box-shadow:0 1px 3px rgba(0,0,0,.04);padding:20px}
+    .badge{padding:2px 10px;border-radius:20px;font-size:12px;font-weight:500}
+    .spinner{width:32px;height:32px;border:3px solid #e5e7eb;border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th{text-align:left;color:#94a3b8;font-weight:500;padding:8px 12px;border-bottom:1px solid #f1f5f9}
+    td{padding:10px 12px;border-bottom:1px solid #f8fafc}
+    tr:hover{background:#f8fafc}
   </style>
 </head>
 <body>
-  <div id="root"><div class="loader"><div class="spin" style="width:40px;height:40px;border:4px solid #e5e7eb;border-top-color:#3b82f6;border-radius:50%"></div></div></div>
-
-  <script type="text/babel">
-    const { useState, useEffect, useCallback } = React;
-    const { AreaChart, Area, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
-            XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } = Recharts;
-
-    // ─── API Helper ─────────────────────────────────────────
-    const API = window.location.origin + "/api";
-
-    const fetchAPI = async (path) => {
-      try {
-        const res = await fetch(API + path);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return await res.json();
-      } catch (err) {
-        console.error("API Error:", err);
-        return null;
-      }
-    };
-
-    // ─── Formatters ─────────────────────────────────────────
-    const fmt = (v) => (v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-    const fmtK = (v) => `R$ ${((v || 0) / 1000).toFixed(1)}k`;
-    const fmtDate = (d) => d ? new Date(d).toLocaleDateString("pt-BR") : "—";
-
-    const mktColors = {
-      mercadolivre: { bg: "#FFF3CD", text: "#856404", label: "Mercado Livre", emoji: "🟡" },
-      shopee: { bg: "#FFE0D0", text: "#E24C16", label: "Shopee", emoji: "🟠" },
-      amazon: { bg: "#D4EDDA", text: "#155724", label: "Amazon", emoji: "🟢" },
-      tiktok: { bg: "#E8E0F0", text: "#5B2D8E", label: "TikTok Shop", emoji: "🟣" },
-      magalu: { bg: "#CCE5FF", text: "#004085", label: "Magalu", emoji: "🔵" },
-    };
-
-    const statusColor = {
-      Entregue: "bg-emerald-100 text-emerald-700", Enviado: "bg-blue-100 text-blue-700",
-      Confirmado: "bg-indigo-100 text-indigo-700", Pago: "bg-teal-100 text-teal-700",
-      Processando: "bg-amber-100 text-amber-700", Cancelado: "bg-red-100 text-red-700",
-      "Aguardando Pagamento": "bg-yellow-100 text-yellow-700", "Aguardando Envio": "bg-orange-100 text-orange-700",
-      "Pronto para Envio": "bg-cyan-100 text-cyan-700", "Em Trânsito": "bg-blue-100 text-blue-700",
-      Pendente: "bg-gray-100 text-gray-500", Completo: "bg-emerald-100 text-emerald-700",
-      Aprovado: "bg-green-100 text-green-700", Novo: "bg-blue-100 text-blue-700",
-      VIP: "bg-purple-100 text-purple-700", Ativo: "bg-emerald-100 text-emerald-700",
-      Regular: "bg-gray-100 text-gray-600", Inativo: "bg-gray-100 text-gray-400",
-    };
-
-    // ─── Components ─────────────────────────────────────────
-    const Badge = ({ text, mkt }) => {
-      const c = mktColors[mkt];
-      return c ? (
-        <span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{ background: c.bg, color: c.text }}>
-          {c.emoji} {c.label}
-        </span>
-      ) : <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">{mkt}</span>;
-    };
-
-    const StatusBadge = ({ status }) => (
-      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColor[status] || "bg-gray-100 text-gray-600"}`}>
-        {status}
-      </span>
-    );
-
-    const KPI = ({ label, value, sub, color }) => (
-      <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-        <div className={`w-10 h-10 rounded-lg ${color} flex items-center justify-center text-white text-lg mb-3`}>
-          {label === "Faturamento" ? "💰" : label === "Pedidos" ? "📦" : label === "Taxas" ? "📊" : "✅"}
-        </div>
-        <p className="text-2xl font-bold text-gray-900">{value}</p>
-        <p className="text-sm text-gray-500 mt-0.5">{label}</p>
-        {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
+<div class="flex h-screen overflow-hidden">
+  <aside class="w-52 bg-white border-r border-gray-100 flex flex-col shrink-0">
+    <div class="p-4 border-b border-gray-100 font-bold text-gray-800">🛒 MeuShop</div>
+    <nav class="flex-1 p-2 space-y-1">
+      <button onclick="showPage('dashboard')" class="nav-btn active w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-50" data-page="dashboard">📊 Dashboard</button>
+      <button onclick="showPage('pedidos')" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-50" data-page="pedidos">📦 Pedidos</button>
+      <button onclick="showPage('financeiro')" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-50" data-page="financeiro">💰 Financeiro</button>
+      <button onclick="showPage('config')" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-50" data-page="config">⚙️ Config</button>
+    </nav>
+  </aside>
+  <main class="flex-1 overflow-y-auto p-6">
+    <div id="page-dashboard" class="page active max-w-7xl mx-auto space-y-6">
+      <div><h1 class="text-2xl font-bold text-gray-900">Dashboard</h1><p class="text-gray-500 mt-1">Dados consolidados dos marketplaces</p></div>
+      <div id="kpis" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"></div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="card"><h2 class="font-semibold text-gray-800 mb-4">Receita por Marketplace</h2><canvas id="chartReceita" height="200"></canvas></div>
+        <div class="card"><h2 class="font-semibold text-gray-800 mb-4">Status dos Marketplaces</h2><div id="mktStatus"></div></div>
       </div>
-    );
-
-    const LoadingSpinner = () => (
-      <div className="flex items-center justify-center py-20">
-        <div className="spin" style={{ width: 32, height: 32, border: "3px solid #e5e7eb", borderTopColor: "#3b82f6", borderRadius: "50%" }} />
-        <span className="ml-3 text-gray-500">Buscando dados dos marketplaces...</span>
+      <div class="card"><h2 class="font-semibold text-gray-800 mb-4">Pedidos Recentes</h2><div id="recentOrders"></div></div>
+    </div>
+    <div id="page-pedidos" class="page max-w-7xl mx-auto space-y-6">
+      <div><h1 class="text-2xl font-bold text-gray-900">Pedidos</h1><p class="text-gray-500 mt-1">Todos os pedidos consolidados</p></div>
+      <div id="orderFilters" class="flex gap-2 flex-wrap"></div>
+      <div class="card"><div id="allOrders"></div></div>
+    </div>
+    <div id="page-financeiro" class="page max-w-7xl mx-auto space-y-6">
+      <div><h1 class="text-2xl font-bold text-gray-900">Financeiro</h1></div>
+      <div id="finKpis" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"></div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="card"><h2 class="font-semibold text-gray-800 mb-4">Receita por Canal</h2><canvas id="chartPie" height="250"></canvas></div>
+        <div class="card"><h2 class="font-semibold text-gray-800 mb-4">Detalhamento</h2><div id="finDetail"></div></div>
       </div>
-    );
-
-    const EmptyState = ({ message }) => (
-      <div className="text-center py-16 text-gray-400">
-        <p className="text-4xl mb-3">📭</p>
-        <p>{message}</p>
+    </div>
+    <div id="page-config" class="page max-w-7xl mx-auto space-y-6">
+      <div><h1 class="text-2xl font-bold text-gray-900">Configurações</h1></div>
+      <div class="card"><h2 class="font-semibold text-gray-800 mb-4">Status das Integrações</h2><div id="configStatus"></div></div>
+      <div class="card">
+        <h2 class="font-semibold text-gray-800 mb-2">Limpar Cache</h2>
+        <p class="text-sm text-gray-500 mb-4">Força o sistema a buscar dados novos.</p>
+        <button onclick="fetch('/api/cache/clear',{method:'POST'}).then(()=>alert('Cache limpo!'))" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm font-medium">🔄 Limpar Cache</button>
       </div>
-    );
+    </div>
+  </main>
+</div>
+<script>
+var fmt=function(v){return(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})};
+var fmtDate=function(d){return d?new Date(d).toLocaleDateString('pt-BR'):'—'};
+var mktInfo={mercadolivre:{label:'Mercado Livre',emoji:'🟡',color:'#F59E0B'},shopee:{label:'Shopee',emoji:'🟠',color:'#EA580C'},amazon:{label:'Amazon',emoji:'🟢',color:'#16A34A'},tiktok:{label:'TikTok Shop',emoji:'🟣',color:'#7C3AED'},magalu:{label:'Magalu',emoji:'🔵',color:'#2563EB'}};
+var statusColors={Pago:'bg-teal-100 text-teal-700',Entregue:'bg-emerald-100 text-emerald-700',Enviado:'bg-blue-100 text-blue-700',Confirmado:'bg-indigo-100 text-indigo-700',Cancelado:'bg-red-100 text-red-700',Processando:'bg-amber-100 text-amber-700'};
 
-    const ChartTooltip = ({ active, payload, label }) => {
-      if (!active || !payload?.length) return null;
-      return (
-        <div className="bg-white rounded-lg shadow-lg border border-gray-100 p-3 text-sm">
-          <p className="font-semibold text-gray-700 mb-1">{label}</p>
-          {payload.map((p, i) => (
-            <p key={i} style={{ color: p.color }} className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full inline-block" style={{ background: p.color }} />
-              {p.name}: {typeof p.value === "number" && p.value > 100 ? fmt(p.value) : p.value}
-            </p>
-          ))}
-        </div>
-      );
-    };
+function loading(){return '<div class="flex justify-center py-12"><div class="spinner"></div></div>'}
+function showPage(id){
+  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active')});
+  document.getElementById('page-'+id).classList.add('active');
+  document.querySelectorAll('.nav-btn').forEach(function(b){b.classList.toggle('active',b.dataset.page===id)});
+  if(id==='pedidos'&&!window._oL)loadOrders();
+  if(id==='financeiro'&&!window._fL)loadFinancials();
+  if(id==='config'&&!window._cL)loadConfig();
+}
+function kpiCard(emoji,label,value,sub,color){
+  return '<div class="card"><div class="w-10 h-10 rounded-lg '+color+' flex items-center justify-center text-white text-lg mb-3">'+emoji+'</div><p class="text-2xl font-bold text-gray-900">'+value+'</p><p class="text-sm text-gray-500">'+label+'</p>'+(sub?'<p class="text-xs text-gray-400 mt-1">'+sub+'</p>':'')+'</div>';
+}
+function orderRow(o){
+  var mi=mktInfo[o.marketplace]||{label:o.marketplace,emoji:'⚪'};
+  var sc=statusColors[o.status]||'bg-gray-100 text-gray-600';
+  var t=(o.itens&&o.itens[0]&&o.itens[0].titulo)||'—';
+  return '<tr><td class="font-mono text-xs">'+String(o.id).substring(0,18)+'</td><td><span class="badge bg-gray-100">'+mi.emoji+' '+mi.label+'</span></td><td class="text-gray-600" title="'+t+'">'+t.substring(0,35)+(t.length>35?'...':'')+'</td><td class="font-semibold">'+fmt(o.valorTotal)+'</td><td><span class="badge '+sc+'">'+o.status+'</span></td><td class="text-gray-500">'+fmtDate(o.data)+'</td></tr>';
+}
+function ordersTable(orders){
+  if(!orders.length)return '<p class="text-center text-gray-400 py-8">Nenhum pedido encontrado</p>';
+  return '<div class="overflow-x-auto"><table><thead><tr><th>ID</th><th>Canal</th><th>Produto</th><th>Valor</th><th>Status</th><th>Data</th></tr></thead><tbody>'+orders.map(orderRow).join('')+'</tbody></table></div>';
+}
 
-    // ─── Pages ──────────────────────────────────────────────
-    const DashboardPage = () => {
-      const [data, setData] = useState(null);
-      const [orders, setOrders] = useState(null);
-      const [loading, setLoading] = useState(true);
+function loadDashboard(){
+  document.getElementById('kpis').innerHTML=loading();
+  document.getElementById('recentOrders').innerHTML=loading();
+  Promise.all([fetch('/api/dashboard').then(function(r){return r.json()}),fetch('/api/orders?limit=8').then(function(r){return r.json()})]).then(function(res){
+    var dash=res[0],orders=res[1],k=dash.kpis||{};
+    document.getElementById('kpis').innerHTML=kpiCard('💰','Faturamento',fmt(k.receitaTotal),'Este mês','bg-blue-500')+kpiCard('📦','Pedidos',k.totalPedidos||0,'Este mês','bg-violet-500')+kpiCard('📊','Taxas',fmt(k.taxasTotal),'Comissões','bg-amber-500')+kpiCard('✅','Lucro Estimado',fmt(k.lucroEstimado),'Receita - taxas','bg-emerald-500');
+    var mkts=(dash.porMarketplace||[]).filter(function(m){return !m.error});
+    if(mkts.length){try{new Chart(document.getElementById('chartReceita'),{type:'bar',data:{labels:mkts.map(function(m){return(mktInfo[m.marketplace]||{}).label||m.marketplace}),datasets:[{label:'Receita',data:mkts.map(function(m){return m.receita||0}),backgroundColor:mkts.map(function(m){return(mktInfo[m.marketplace]||{}).color||'#94a3b8'}),borderRadius:6}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:function(v){return 'R$'+(v/1000).toFixed(0)+'k'}}}}}});}catch(e){}}
+    var all=dash.porMarketplace||[];
+    document.getElementById('mktStatus').innerHTML=all.map(function(m){var mi=mktInfo[m.marketplace]||{label:m.marketplace,emoji:'⚪'};return '<div class="flex items-center justify-between p-3 rounded-lg bg-gray-50 mb-2"><span class="badge bg-gray-100">'+mi.emoji+' '+mi.label+'</span>'+(m.error?'<span class="text-xs text-red-500">⚠️ Não configurado</span>':'<div class="text-right"><p class="text-sm font-semibold">'+fmt(m.receita)+'</p><p class="text-xs text-gray-400">'+m.totalPedidos+' pedidos</p></div>')+'</div>'}).join('');
+    document.getElementById('recentOrders').innerHTML=ordersTable(orders.pedidos||[]);
+  }).catch(function(err){document.getElementById('kpis').innerHTML='<div class="col-span-4 text-center text-red-500 py-8">Erro: '+err.message+'</div>'});
+}
 
-      useEffect(() => {
-        Promise.all([fetchAPI("/dashboard"), fetchAPI("/orders?limit=10")])
-          .then(([d, o]) => { setData(d); setOrders(o); setLoading(false); });
-      }, []);
+function loadOrders(marketplace){
+  window._oL=true;
+  var url=marketplace&&marketplace!=='todos'?'/api/orders?marketplace='+marketplace+'&limit=100':'/api/orders?limit=100';
+  document.getElementById('allOrders').innerHTML=loading();
+  var filters=['todos','mercadolivre','shopee','amazon','tiktok','magalu'];
+  document.getElementById('orderFilters').innerHTML=filters.map(function(f){var active=(marketplace||'todos')===f;var mi=mktInfo[f];var label=f==='todos'?'Todos':(mi?mi.emoji+' '+mi.label:f);return '<button onclick="loadOrders(\''+f+'\')" class="px-3 py-2 rounded-lg text-sm font-medium '+(active?'bg-blue-600 text-white':'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50')+'">'+label+'</button>'}).join('');
+  fetch(url).then(function(r){return r.json()}).then(function(data){document.getElementById('allOrders').innerHTML='<p class="text-sm text-gray-500 mb-3">'+(data.total||0)+' pedidos</p>'+ordersTable(data.pedidos||[])}).catch(function(err){document.getElementById('allOrders').innerHTML='<p class="text-red-500">Erro: '+err.message+'</p>'});
+}
 
-      if (loading) return <LoadingSpinner />;
-      if (!data) return <EmptyState message="Não foi possível conectar à API. Verifique se o servidor está rodando." />;
+function loadFinancials(){
+  window._fL=true;
+  document.getElementById('finKpis').innerHTML=loading();
+  fetch('/api/financials').then(function(r){return r.json()}).then(function(data){
+    var c=data.consolidado||{};
+    document.getElementById('finKpis').innerHTML=kpiCard('💰','Receita Total',fmt(c.receita),'','bg-blue-500')+kpiCard('📊','Taxas',fmt(c.taxas),'Comissões','bg-red-500')+kpiCard('✅','Lucro Estimado',fmt(c.lucroEstimado),'','bg-emerald-500')+kpiCard('📦','Total Pedidos',c.totalPedidos||0,'','bg-violet-500');
+    var mkts=(data.porMarketplace||[]).filter(function(m){return !m.error&&m.receita>0});
+    if(mkts.length){try{new Chart(document.getElementById('chartPie'),{type:'doughnut',data:{labels:mkts.map(function(m){return(mktInfo[m.marketplace]||{}).label||m.marketplace}),datasets:[{data:mkts.map(function(m){return m.receita||0}),backgroundColor:mkts.map(function(m){return(mktInfo[m.marketplace]||{}).color||'#94a3b8'})}]},options:{responsive:true,plugins:{legend:{position:'bottom'}}}});}catch(e){}}
+    var allM=(data.porMarketplace||[]).filter(function(m){return !m.error});
+    document.getElementById('finDetail').innerHTML=allM.map(function(m){var mi=mktInfo[m.marketplace]||{label:m.marketplace,emoji:'⚪'};var mg=m.receita>0?((m.lucroEstimado/m.receita)*100).toFixed(1):'0.0';return '<div class="p-4 rounded-lg bg-gray-50 mb-3"><div class="flex items-center justify-between mb-2"><span class="badge bg-gray-100">'+mi.emoji+' '+mi.label+'</span><span class="font-bold">'+fmt(m.receita)+'</span></div><div class="grid grid-cols-3 gap-2 text-center text-xs"><div><p class="font-semibold text-red-500">'+fmt(m.taxas)+'</p><p class="text-gray-400">Taxas</p></div><div><p class="font-semibold text-emerald-600">'+fmt(m.lucroEstimado)+'</p><p class="text-gray-400">Lucro</p></div><div><p class="font-semibold text-blue-600">'+mg+'%</p><p class="text-gray-400">Margem</p></div></div></div>'}).join('')||'<p class="text-gray-400 text-center py-4">Sem dados</p>';
+  }).catch(function(err){document.getElementById('finKpis').innerHTML='<div class="col-span-4 text-red-500 text-center py-8">Erro: '+err.message+'</div>'});
+}
 
-      const kpis = data.kpis || {};
-      const porMkt = data.porMarketplace || [];
-      const pedidos = orders?.pedidos?.slice(0, 8) || [];
+function loadConfig(){
+  window._cL=true;
+  fetch('/api/status').then(function(r){return r.json()}).then(function(data){
+    var all=['mercadolivre','shopee','amazon','tiktok','magalu'];
+    document.getElementById('configStatus').innerHTML=all.map(function(mkt){var active=data.marketplaces&&data.marketplaces.indexOf(mkt)>=0;var mi=mktInfo[mkt]||{label:mkt,emoji:'⚪'};return '<div class="flex items-center justify-between p-4 rounded-lg border border-gray-100 mb-2"><div class="flex items-center gap-3"><span class="text-xl">'+mi.emoji+'</span><span class="font-medium">'+mi.label+'</span></div><span class="badge '+(active?'bg-emerald-100 text-emerald-700':'bg-red-100 text-red-600')+'">'+(active?'✅ Conectado':'❌ Não configurado')+'</span></div>'}).join('');
+  }).catch(function(err){document.getElementById('configStatus').innerHTML='<p class="text-red-500">Erro: '+err.message+'</p>'});
+}
 
-      const chartData = porMkt.filter(m => !m.error).map(m => ({
-        name: mktColors[m.marketplace]?.label || m.marketplace,
-        receita: m.receita || 0,
-        pedidos: m.totalPedidos || 0,
-      }));
-
-      return (
-        <div className="space-y-6">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-            <p className="text-gray-500 mt-1">Dados consolidados de todos os marketplaces</p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <KPI label="Faturamento" value={fmt(kpis.receitaTotal)} sub="Este mês" color="bg-blue-500" />
-            <KPI label="Pedidos" value={kpis.totalPedidos || 0} sub="Este mês" color="bg-violet-500" />
-            <KPI label="Taxas" value={fmt(kpis.taxasTotal)} sub="Comissões dos marketplaces" color="bg-amber-500" />
-            <KPI label="Lucro Estimado" value={fmt(kpis.lucroEstimado)} sub="Receita - taxas" color="bg-emerald-500" />
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-              <h2 className="font-semibold text-gray-800 mb-4">Receita por Marketplace</h2>
-              {chartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                    <YAxis tickFormatter={fmtK} tick={{ fontSize: 11 }} />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Bar dataKey="receita" fill="#3B82F6" name="Receita" radius={[6, 6, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : <EmptyState message="Sem dados de receita ainda" />}
-            </div>
-
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-              <h2 className="font-semibold text-gray-800 mb-4">Status dos Marketplaces</h2>
-              <div className="space-y-3">
-                {porMkt.map((m, i) => (
-                  <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-gray-50">
-                    <Badge text={m.marketplace} mkt={m.marketplace} />
-                    {m.error ? (
-                      <span className="text-xs text-red-500">⚠️ {m.error.substring(0, 40)}</span>
-                    ) : (
-                      <div className="text-right">
-                        <p className="text-sm font-semibold text-gray-800">{fmt(m.receita)}</p>
-                        <p className="text-xs text-gray-400">{m.totalPedidos} pedidos</p>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-            <h2 className="font-semibold text-gray-800 mb-4">Pedidos Recentes</h2>
-            {pedidos.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-gray-400 border-b border-gray-100">
-                      <th className="pb-3 font-medium">Pedido</th>
-                      <th className="pb-3 font-medium">Marketplace</th>
-                      <th className="pb-3 font-medium">Cliente</th>
-                      <th className="pb-3 font-medium">Valor</th>
-                      <th className="pb-3 font-medium">Status</th>
-                      <th className="pb-3 font-medium">Data</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pedidos.map((o, i) => (
-                      <tr key={i} className="border-b border-gray-50 hover:bg-gray-50/50">
-                        <td className="py-3 font-mono text-xs font-semibold text-gray-800">{String(o.id).substring(0, 16)}</td>
-                        <td className="py-3"><Badge mkt={o.marketplace} /></td>
-                        <td className="py-3 text-gray-600">{o.cliente?.nome || "—"}</td>
-                        <td className="py-3 font-medium text-gray-800">{fmt(o.valorTotal)}</td>
-                        <td className="py-3"><StatusBadge status={o.status} /></td>
-                        <td className="py-3 text-gray-500">{fmtDate(o.data)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : <EmptyState message="Nenhum pedido encontrado" />}
-          </div>
-        </div>
-      );
-    };
-
-    const PedidosPage = () => {
-      const [orders, setOrders] = useState(null);
-      const [filter, setFilter] = useState("todos");
-      const [loading, setLoading] = useState(true);
-
-      useEffect(() => {
-        const url = filter === "todos" ? "/orders?limit=100" : `/orders?marketplace=${filter}&limit=100`;
-        setLoading(true);
-        fetchAPI(url).then((d) => { setOrders(d); setLoading(false); });
-      }, [filter]);
-
-      const mkts = ["todos", "mercadolivre", "shopee", "amazon", "tiktok", "magalu"];
-
-      return (
-        <div className="space-y-6">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Pedidos</h1>
-            <p className="text-gray-500 mt-1">Todos os pedidos consolidados</p>
-          </div>
-
-          <div className="flex gap-2 flex-wrap">
-            {mkts.map((m) => (
-              <button key={m} onClick={() => setFilter(m)}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition ${filter === m ? "bg-blue-600 text-white" : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50"}`}>
-                {m === "todos" ? "Todos" : mktColors[m]?.emoji + " " + (mktColors[m]?.label || m)}
-              </button>
-            ))}
-          </div>
-
-          {loading ? <LoadingSpinner /> : (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-              <p className="text-sm text-gray-500 mb-4">{orders?.total || 0} pedidos encontrados</p>
-              {(orders?.pedidos?.length > 0) ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-gray-400 border-b border-gray-100">
-                        <th className="pb-3 font-medium">ID</th>
-                        <th className="pb-3 font-medium">Canal</th>
-                        <th className="pb-3 font-medium">Cliente</th>
-                        <th className="pb-3 font-medium">Itens</th>
-                        <th className="pb-3 font-medium text-right">Valor</th>
-                        <th className="pb-3 font-medium">Status</th>
-                        <th className="pb-3 font-medium">Data</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {orders.pedidos.map((o, i) => (
-                        <tr key={i} className="border-b border-gray-50 hover:bg-gray-50/50">
-                          <td className="py-3 font-mono text-xs">{String(o.id).substring(0, 18)}</td>
-                          <td className="py-3"><Badge mkt={o.marketplace} /></td>
-                          <td className="py-3 text-gray-600">{o.cliente?.nome || "—"}</td>
-                          <td className="py-3 text-gray-500">{o.itens?.length || 0}</td>
-                          <td className="py-3 text-right font-semibold">{fmt(o.valorTotal)}</td>
-                          <td className="py-3"><StatusBadge status={o.status} /></td>
-                          <td className="py-3 text-gray-500">{fmtDate(o.data)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : <EmptyState message="Nenhum pedido neste filtro" />}
-            </div>
-          )}
-        </div>
-      );
-    };
-
-    const FinanceiroPage = () => {
-      const [data, setData] = useState(null);
-      const [loading, setLoading] = useState(true);
-
-      useEffect(() => {
-        fetchAPI("/financials").then((d) => { setData(d); setLoading(false); });
-      }, []);
-
-      if (loading) return <LoadingSpinner />;
-      if (!data) return <EmptyState message="Não foi possível carregar dados financeiros" />;
-
-      const c = data.consolidado || {};
-      const mkts = (data.porMarketplace || []).filter(m => !m.error);
-      const pieData = mkts.map(m => ({ name: mktColors[m.marketplace]?.label || m.marketplace, value: m.receita || 0 }));
-      const PIE_COLORS = ["#3B82F6", "#EF6C00", "#10B981", "#7C3AED", "#2196F3"];
-
-      return (
-        <div className="space-y-6">
-          <h1 className="text-2xl font-bold text-gray-900">Relatórios Financeiros</h1>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-              <p className="text-sm text-gray-500">Receita Total</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{fmt(c.receita)}</p>
-            </div>
-            <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-              <p className="text-sm text-gray-500">Taxas / Comissões</p>
-              <p className="text-2xl font-bold text-red-500 mt-1">{fmt(c.taxas)}</p>
-            </div>
-            <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-              <p className="text-sm text-gray-500">Lucro Estimado</p>
-              <p className="text-2xl font-bold text-emerald-600 mt-1">{fmt(c.lucroEstimado)}</p>
-            </div>
-            <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-              <p className="text-sm text-gray-500">Total de Pedidos</p>
-              <p className="text-2xl font-bold text-blue-600 mt-1">{c.totalPedidos || 0}</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-              <h2 className="font-semibold text-gray-800 mb-4">Receita por Canal</h2>
-              {pieData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={280}>
-                  <PieChart>
-                    <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={3} dataKey="value"
-                         label={({ name, value }) => `${name}: ${fmt(value)}`}>
-                      {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                    </Pie>
-                    <Tooltip formatter={(v) => fmt(v)} />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : <EmptyState message="Sem dados" />}
-            </div>
-
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-              <h2 className="font-semibold text-gray-800 mb-4">Detalhamento por Marketplace</h2>
-              <div className="space-y-3">
-                {mkts.map((m, i) => {
-                  const margem = m.receita > 0 ? ((m.lucroEstimado / m.receita) * 100).toFixed(1) : "0.0";
-                  return (
-                    <div key={i} className="p-4 rounded-lg bg-gray-50">
-                      <div className="flex items-center justify-between mb-2">
-                        <Badge mkt={m.marketplace} />
-                        <span className="text-sm font-bold text-gray-800">{fmt(m.receita)}</span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                        <div><p className="font-semibold text-red-500">{fmt(m.taxas)}</p><p className="text-gray-400">Taxas</p></div>
-                        <div><p className="font-semibold text-emerald-600">{fmt(m.lucroEstimado)}</p><p className="text-gray-400">Lucro</p></div>
-                        <div><p className="font-semibold text-blue-600">{margem}%</p><p className="text-gray-400">Margem</p></div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    };
-
-    const ClientesPage = () => {
-      const [data, setData] = useState(null);
-      const [search, setSearch] = useState("");
-      const [loading, setLoading] = useState(true);
-      const [selected, setSelected] = useState(null);
-
-      useEffect(() => {
-        fetchAPI("/customers").then((d) => { setData(d); setLoading(false); });
-      }, []);
-
-      if (loading) return <LoadingSpinner />;
-      const clientes = (data?.clientes || []).filter(c =>
-        c.nome?.toLowerCase().includes(search.toLowerCase()) || c.email?.toLowerCase().includes(search.toLowerCase())
-      );
-
-      return (
-        <div className="space-y-6">
-          <div className="flex items-start justify-between flex-wrap gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Clientes</h1>
-              <p className="text-gray-500 mt-1">{data?.total || 0} clientes identificados nos últimos 90 dias</p>
-            </div>
-            <input type="text" placeholder="🔍 Buscar..." value={search} onChange={e => setSearch(e.target.value)}
-              className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64" />
-          </div>
-
-          {selected && (
-            <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-6">
-              <div className="flex justify-between items-start">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg">
-                    {(selected.nome || "?")[0]}
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-gray-900">{selected.nome}</h3>
-                    <p className="text-sm text-gray-500">{selected.email || "Sem e-mail"}</p>
-                  </div>
-                </div>
-                <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4 pt-4 border-t border-gray-100">
-                <div className="text-center"><p className="text-lg font-bold">{fmt(selected.totalGasto)}</p><p className="text-xs text-gray-400">Total Gasto</p></div>
-                <div className="text-center"><p className="text-lg font-bold">{selected.pedidos}</p><p className="text-xs text-gray-400">Pedidos</p></div>
-                <div className="text-center"><p className="text-lg font-bold">{fmt(selected.ticketMedio)}</p><p className="text-xs text-gray-400">Ticket Médio</p></div>
-                <div className="text-center">
-                  <div className="flex gap-1 justify-center">{(selected.marketplaces || []).map((m, i) => <Badge key={i} mkt={m} />)}</div>
-                  <p className="text-xs text-gray-400 mt-1">Canais</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            {clientes.length > 0 ? (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-gray-400 bg-gray-50/70">
-                    <th className="px-5 py-3 font-medium">Cliente</th>
-                    <th className="px-5 py-3 font-medium">Canais</th>
-                    <th className="px-5 py-3 font-medium text-right">Total Gasto</th>
-                    <th className="px-5 py-3 font-medium text-center">Pedidos</th>
-                    <th className="px-5 py-3 font-medium">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {clientes.slice(0, 50).map((c, i) => (
-                    <tr key={i} className="border-b border-gray-50 hover:bg-blue-50/30 cursor-pointer" onClick={() => setSelected(c)}>
-                      <td className="px-5 py-3">
-                        <p className="font-medium text-gray-800">{c.nome}</p>
-                        <p className="text-xs text-gray-400">{c.email || "—"}</p>
-                      </td>
-                      <td className="px-5 py-3">
-                        <div className="flex gap-1 flex-wrap">{(c.marketplaces || []).map((m, j) => <Badge key={j} mkt={m} />)}</div>
-                      </td>
-                      <td className="px-5 py-3 text-right font-semibold">{fmt(c.totalGasto)}</td>
-                      <td className="px-5 py-3 text-center">{c.pedidos}</td>
-                      <td className="px-5 py-3"><StatusBadge status={c.status} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : <EmptyState message="Nenhum cliente encontrado" />}
-          </div>
-        </div>
-      );
-    };
-
-    const ConfigPage = () => {
-      const [status, setStatus] = useState(null);
-      const [loading, setLoading] = useState(true);
-
-      useEffect(() => {
-        fetchAPI("/status").then((d) => { setStatus(d); setLoading(false); });
-      }, []);
-
-      return (
-        <div className="space-y-6">
-          <h1 className="text-2xl font-bold text-gray-900">Configurações</h1>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <h2 className="font-semibold text-gray-800 mb-4">Status das Integrações</h2>
-            {loading ? <LoadingSpinner /> : (
-              <div className="space-y-3">
-                {["mercadolivre", "shopee", "amazon", "tiktok", "magalu"].map((mkt) => {
-                  const active = status?.marketplaces?.includes(mkt);
-                  const c = mktColors[mkt];
-                  return (
-                    <div key={mkt} className="flex items-center justify-between p-4 rounded-lg border border-gray-100">
-                      <div className="flex items-center gap-3">
-                        <span className="text-xl">{c?.emoji}</span>
-                        <span className="font-medium text-gray-800">{c?.label || mkt}</span>
-                      </div>
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${active ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-600"}`}>
-                        {active ? "✅ Conectado" : "❌ Não configurado"}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <h2 className="font-semibold text-gray-800 mb-2">Limpar Cache</h2>
-            <p className="text-sm text-gray-500 mb-4">Força o sistema a buscar dados novos de todos os marketplaces.</p>
-            <button onClick={() => { fetch(API + "/cache/clear", { method: "POST" }); alert("Cache limpo!"); }}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition text-sm font-medium">
-              🔄 Limpar Cache
-            </button>
-          </div>
-        </div>
-      );
-    };
-
-    // ─── App ────────────────────────────────────────────────
-    const App = () => {
-      const [page, setPage] = useState("dashboard");
-      const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 768);
-
-      const nav = [
-        { id: "dashboard", label: "Dashboard", icon: "📊" },
-        { id: "pedidos", label: "Pedidos", icon: "📦" },
-        { id: "financeiro", label: "Financeiro", icon: "💰" },
-        { id: "clientes", label: "Clientes", icon: "👥" },
-        { id: "config", label: "Configurações", icon: "⚙️" },
-      ];
-
-      const pages = {
-        dashboard: <DashboardPage />,
-        pedidos: <PedidosPage />,
-        financeiro: <FinanceiroPage />,
-        clientes: <ClientesPage />,
-        config: <ConfigPage />,
-      };
-
-      return (
-        <div className="flex h-screen bg-slate-50 overflow-hidden">
-          <aside className={`${sidebarOpen ? "w-52" : "w-14"} bg-white border-r border-gray-100 flex flex-col transition-all duration-200 shrink-0`}>
-            <div className="p-3 flex items-center gap-2 border-b border-gray-100">
-              <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 text-lg">☰</button>
-              {sidebarOpen && <span className="font-bold text-gray-800 tracking-tight">MeuShop</span>}
-            </div>
-            <nav className="flex-1 p-2 space-y-1">
-              {nav.map((item) => (
-                <button key={item.id} onClick={() => { setPage(item.id); if (window.innerWidth < 768) setSidebarOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${
-                    page === item.id ? "bg-blue-50 text-blue-600" : "text-gray-500 hover:bg-gray-50"
-                  }`}>
-                  <span>{item.icon}</span>
-                  {sidebarOpen && <span>{item.label}</span>}
-                </button>
-              ))}
-            </nav>
-          </aside>
-          <main className="flex-1 overflow-y-auto">
-            <div className="max-w-7xl mx-auto p-4 sm:p-6">{pages[page]}</div>
-          </main>
-        </div>
-      );
-    };
-
-    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
-  </script>
+loadDashboard();
+</script>
 </body>
 </html>
